@@ -59,7 +59,7 @@ t3 theme show            # List the default and all published themes
 
 ### Publish a theme
 
-Save an exported theme JSON into `~/.t3/userdata/themes/` on the server (or `themes/` under your custom state directory). The filename sets the theme ID (e.g. `nightfall.json` → `t3 theme set nightfall`). Avoid reserved IDs (`system`, `light`, `dark`, or built-in theme IDs).
+Save an exported theme JSON into `<T3 home>/userdata/themes/` on the server (or `themes/` under your custom state directory). On Linux, T3 home defaults to `${XDG_DATA_HOME:-$HOME/.local/share}/t3code`, unless only legacy `~/.t3` exists; other platforms use `~/.t3`. The filename sets the theme ID (e.g. `nightfall.json` → `t3 theme set nightfall`). Avoid reserved IDs (`system`, `light`, `dark`, or built-in theme IDs).
 
 You can also use a minimal palette format—T3 Code generates the remaining tokens:
 

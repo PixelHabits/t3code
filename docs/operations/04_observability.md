@@ -8,7 +8,9 @@ Default trace paths (`server.trace.ndjson`):
 
 - Production / explicit `--home-dir` / `T3CODE_HOME`: `<home>/userdata/logs/server.trace.ndjson`
 - Linked worktree dev run: `<worktree>/.t3/userdata/logs/server.trace.ndjson`
-- Non-worktree dev run: `~/.t3/dev/logs/server.trace.ndjson`
+- Non-worktree dev run: `<T3 home>/dev/logs/server.trace.ndjson`
+
+Without `--home-dir` or `T3CODE_HOME`, `<home>` is the T3 home. On Linux, T3 home defaults to `${XDG_DATA_HOME:-$HOME/.local/share}/t3code`, unless only legacy `~/.t3` exists; other platforms use `~/.t3`.
 
 Summarize counts, rates, and latency percentiles offline (even while a server is stalled or stopped):
 
