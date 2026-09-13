@@ -58,6 +58,28 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer home
       await NodeFSP.rm(temporaryRoot, { recursive: true, force: true });
     }
   });
+
+  it.each([
+    ["the XDG data home", "xdg/t3code"],
+    ["an existing ~/.t3 when the XDG home is missing", ".t3"],
+  ])("defaults to %s like the server", async (_, relativeHome) => {
+    const root = await NodeFSP.realpath(
+      await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-install-default-home-")),
+    );
+    const binDir = NodePath.join(root, "bin");
+    try {
+      const { code, output, target } = await installOver({
+        script: "install.sh",
+        home: NodePath.join(root, relativeHome),
+        binDir,
+        env: { HOME: root, XDG_DATA_HOME: NodePath.join(root, "xdg"), T3CODE_HOME: undefined },
+      });
+      expect(code, output).toBe(0);
+      expect(await NodeFSP.readlink(NodePath.join(binDir, "t3"))).toBe(NodePath.join(target, "t3"));
+    } finally {
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 // regression: #22490

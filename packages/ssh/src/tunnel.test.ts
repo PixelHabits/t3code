@@ -154,7 +154,8 @@ const localRemoteShellLayer = (home: string) =>
             ["-c", `${gate}exec sh -s -- "$1"`, "sh", ...commandArgs(command).slice(-1)],
             {
               ...command.options,
-              env: { ...command.options.env, HOME: home },
+              // Pinned: the remote scripts otherwise take the home from the host's XDG_DATA_HOME.
+              env: { ...command.options.env, HOME: home, T3CODE_HOME: `${home}/.t3` },
               // Like an SSH session ending, the shell's exit leaves its nohup'd server running.
               detached: false,
             },
@@ -830,7 +831,7 @@ server.listen(Number(flag("--port") ?? 0), "127.0.0.1", () => {
         return realSpawner.spawn(
           ChildProcess.make("setsid", ["-w", ...remoteArgs.filter((arg) => arg !== "-l")], {
             ...command.options,
-            env: { PATH: process.env.PATH ?? "", HOME: home },
+            env: { PATH: process.env.PATH ?? "", HOME: home, T3CODE_HOME: `${home}/.t3` },
             extendEnv: false,
           }),
         );

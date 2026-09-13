@@ -553,8 +553,14 @@ const REMOTE_MANAGED_SERVER_RUNNING_SCRIPT = `managed_server_running() {
   ! ps -ww -o args= -p "$$" >/dev/null 2>&1
 }`;
 
+const REMOTE_HOME_SCRIPT = `if [ -z "\${T3CODE_HOME:-}" ] && [ "$(uname -s 2>/dev/null || true)" = Linux ]; then
+  T3CODE_HOME="\${XDG_DATA_HOME:-$HOME/.local/share}/t3code"
+  if [ ! -d "$T3CODE_HOME" ] && [ -d "$HOME/.t3" ]; then T3CODE_HOME="$HOME/.t3"; fi
+fi`;
+
 const REMOTE_LAUNCH_SCRIPT = `set -eu
 @@T3_NODE_ENV_SCRIPT@@
+${REMOTE_HOME_SCRIPT}
 STATE_KEY="$1"
 STATE_DIR="\${T3CODE_HOME:-$HOME/.t3}/ssh-launch/$STATE_KEY"
 DEFAULT_SERVER_HOME="\${T3CODE_HOME:-$HOME/.t3}"
@@ -833,6 +839,7 @@ printf '{"remotePort":%s,"serverKind":"%s"}\\n' "$REMOTE_PORT" "\${REMOTE_MANAGE
 `;
 
 const REMOTE_PAIRING_SCRIPT = `set -eu
+${REMOTE_HOME_SCRIPT}
 STATE_DIR="\${T3CODE_HOME:-$HOME/.t3}/ssh-launch/@@T3_STATE_KEY@@"
 DEFAULT_SERVER_HOME="\${T3CODE_HOME:-$HOME/.t3}"
 RUNNER_FILE="$STATE_DIR/run-t3.sh"
@@ -846,6 +853,7 @@ PAIRING_BASE_DIR="$DEFAULT_SERVER_HOME"
 `;
 
 const REMOTE_STOP_SCRIPT = `set -eu
+${REMOTE_HOME_SCRIPT}
 STATE_DIR="\${T3CODE_HOME:-$HOME/.t3}/ssh-launch/@@T3_STATE_KEY@@"
 PID_FILE="$STATE_DIR/pid"
 PORT_FILE="$STATE_DIR/port"
@@ -870,6 +878,7 @@ printf '{"stopped":true}\\n'
 `;
 
 const REMOTE_LOG_TAIL_SCRIPT = `set -eu
+${REMOTE_HOME_SCRIPT}
 STATE_DIR="\${T3CODE_HOME:-$HOME/.t3}/ssh-launch/@@T3_STATE_KEY@@"
 LOG_FILE="$STATE_DIR/server.log"
 if [ -f "$LOG_FILE" ]; then
