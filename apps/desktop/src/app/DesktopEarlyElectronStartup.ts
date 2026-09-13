@@ -19,6 +19,7 @@ interface EarlyDesktopSettingsInput {
   readonly env: NodeJS.ProcessEnv;
   readonly homeDirectory: string;
   readonly joinPath: JoinPath;
+  readonly directoryExists: (path: string) => boolean;
   readonly readFileString: (path: string) => string;
 }
 
@@ -53,12 +54,16 @@ function resolveEarlyDesktopSettingsPath(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly homeDirectory: string;
   readonly joinPath: JoinPath;
+  readonly directoryExists: (path: string) => boolean;
 }): string {
   const t3Home = Option.fromUndefinedOr(input.env.T3CODE_HOME);
   const baseDir = resolveDesktopBaseDir({
     homeDirectory: input.homeDirectory,
     joinPath: input.joinPath,
+    platform: "linux",
     t3Home,
+    xdgDataHome: Option.fromUndefinedOr(input.env.XDG_DATA_HOME),
+    directoryExists: input.directoryExists,
   });
   const stateDir = resolveDesktopStateDir({
     baseDir,

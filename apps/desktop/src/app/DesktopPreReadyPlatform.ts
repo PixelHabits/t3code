@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - pre-ready Electron setup reads settings, prepares the Linux desktop entry, and asks Hyprland for its version synchronously before app services are available.
+import { directoryExistsSync } from "@t3tools/shared/defaultT3Home";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -38,6 +39,7 @@ export const resolveEarlyLinuxElectronOptionsFromProcess = (
     env: process.env,
     homeDirectory,
     joinPath: NodePath.posix.join,
+    directoryExists: directoryExistsSync,
     readFileString: (path) => NodeFS.readFileSync(path, "utf8"),
   });
 
