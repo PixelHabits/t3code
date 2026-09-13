@@ -8,7 +8,9 @@
 #   T3CODE_CHANNEL           release train to follow: stable, nightly, or preview
 #                            (default: stable; preview is a maintainers' test train)
 #   T3CODE_VERSION           exact version to install (overrides T3CODE_CHANNEL)
-#   T3CODE_HOME              T3 home directory (default: ~/.t3)
+#   T3CODE_HOME              T3 home directory (default: ~/.t3; on Linux
+#                            ${XDG_DATA_HOME:-~/.local/share}/t3code unless only
+#                            ~/.t3 exists)
 #   T3CODE_INSTALL_BIN_DIR   where the `t3` symlink goes (default: ~/.local/bin)
 #   T3CODE_RELEASE_BASE_URL  mirror for releases/download (default: GitHub)
 #
@@ -19,7 +21,12 @@ set -eu
 
 repo="pingdotgg/t3code"
 base_url="${T3CODE_RELEASE_BASE_URL:-https://github.com/${repo}/releases/download}"
-t3_home="${T3CODE_HOME:-$HOME/.t3}"
+t3_home="${T3CODE_HOME:-}"
+if [ -z "$t3_home" ] && [ "$(uname -s 2>/dev/null || true)" = Linux ]; then
+  t3_home="${XDG_DATA_HOME:-$HOME/.local/share}/t3code"
+  if [ ! -d "$t3_home" ] && [ -d "$HOME/.t3" ]; then t3_home="$HOME/.t3"; fi
+fi
+t3_home="${t3_home:-$HOME/.t3}"
 case "$t3_home" in
   /*) ;;
   *)
