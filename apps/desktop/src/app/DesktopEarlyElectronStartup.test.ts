@@ -9,12 +9,14 @@ import {
 
 describe("DesktopEarlyElectronStartup", () => {
   const joinPath = NodePath.posix.join;
+  const noDirectories = () => false;
 
   it("reads the persisted linux password-store preference before Electron is ready", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
       env: { T3CODE_HOME: "/home/user/.t3-test" },
       homeDirectory: "/home/user",
       joinPath,
+      directoryExists: noDirectories,
       readFileString: (path) => {
         assert.equal(path, "/home/user/.t3-test/userdata/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "kwallet6" });
@@ -29,6 +31,7 @@ describe("DesktopEarlyElectronStartup", () => {
       env: { T3CODE_HOME: "/home/user/.t3-test" },
       homeDirectory: "/home/user",
       joinPath,
+      directoryExists: noDirectories,
       readFileString: () => `{
         // manually edited setting
         "linuxPasswordStore": "gnome-libsecret",
@@ -43,6 +46,7 @@ describe("DesktopEarlyElectronStartup", () => {
       env: {},
       homeDirectory: "/home/user",
       joinPath,
+      directoryExists: noDirectories,
       readFileString: () => {
         throw new Error("missing");
       },
@@ -56,6 +60,7 @@ describe("DesktopEarlyElectronStartup", () => {
       env: { T3CODE_HOME: "/" },
       homeDirectory: "/home/user",
       joinPath,
+      directoryExists: noDirectories,
       readFileString: (path) => {
         assert.equal(path, "/userdata/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "kwallet6" });
@@ -74,6 +79,7 @@ describe("DesktopEarlyElectronStartup", () => {
       },
       homeDirectory: "/home/user",
       joinPath,
+      directoryExists: noDirectories,
       readFileString: (path) => {
         assert.equal(path, "/home/user/.t3-test/userdata/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "auto" });
@@ -88,15 +94,16 @@ describe("DesktopEarlyElectronStartup", () => {
     });
   });
 
-  it("keeps implicit development state under ~/.t3/dev when T3CODE_HOME is unset", () => {
+  it("keeps implicit development state under the Linux XDG default when T3CODE_HOME is unset", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
       env: {
         VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
       },
       homeDirectory: "/home/user",
       joinPath,
+      directoryExists: noDirectories,
       readFileString: (path) => {
-        assert.equal(path, "/home/user/.t3/dev/desktop-settings.json");
+        assert.equal(path, "/home/user/.local/share/t3code/dev/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "kwallet" });
       },
     });
@@ -112,8 +119,9 @@ describe("DesktopEarlyElectronStartup", () => {
       },
       homeDirectory: "/home/user",
       joinPath,
+      directoryExists: noDirectories,
       readFileString: (path) => {
-        assert.equal(path, "/home/user/.t3/dev/desktop-settings.json");
+        assert.equal(path, "/home/user/.local/share/t3code/dev/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "gnome-libsecret" });
       },
     });
