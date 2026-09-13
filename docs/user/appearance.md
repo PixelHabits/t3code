@@ -51,10 +51,12 @@ the default and published themes.
 
 ### Publish a theme
 
-Save a theme exported from T3 Code into `~/.t3/userdata/themes/` on the server, or the `themes`
-directory under your custom state directory. The filename supplies the theme ID: `nightfall.json`
-can be selected with `t3 theme set nightfall`. Keep the filename stable when updating its colors.
-Do not use `system`, `light`, `dark`, or a built-in theme's ID.
+Save a theme exported from T3 Code into `<T3 home>/userdata/themes/` on the server, or the
+`themes` directory under your custom state directory. On Linux, T3 home defaults to
+`${XDG_DATA_HOME:-$HOME/.local/share}/t3code`, unless only legacy `~/.t3` exists; other platforms
+use `~/.t3`. The filename supplies the theme ID: `nightfall.json` can be selected with
+`t3 theme set nightfall`. Keep the filename stable when updating its colors. Do not use `system`,
+`light`, `dark`, or a built-in theme's ID.
 
 For an integration that generates a palette, this shorter format also works:
 
