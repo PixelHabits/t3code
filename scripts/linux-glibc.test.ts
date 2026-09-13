@@ -126,6 +126,12 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("packaged ELF s
         await expect(
           afterPack({ appOutDir: app, electronPlatformName: "linux", targets: [deb] }),
         ).rejects.toThrow(/helper.*GLIBC_2\.40.*2\.39/s);
+        // An unpacked build for this machine is not shipped, so only the scan has to succeed.
+        await afterPack({
+          appOutDir: app,
+          electronPlatformName: "linux",
+          targets: [{ name: "dir" }],
+        });
         await NodeFSP.writeFile(NodePath.join(native, "helper"), Buffer.from("\x7fELFbroken"));
         await expect(scanGlibcNeeds(app)).rejects.toThrow(/helper/);
       } finally {

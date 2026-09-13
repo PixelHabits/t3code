@@ -36,7 +36,10 @@ export function parseGlibcNeeds(output: string): string | undefined {
   return minimum;
 }
 
-export async function scanGlibcNeeds(appOutDir: string): Promise<{
+export async function scanGlibcNeeds(
+  appOutDir: string,
+  enforceCeiling = true,
+): Promise<{
   minimum: string;
   elfCount: number;
 }> {
@@ -69,7 +72,7 @@ export async function scanGlibcNeeds(appOutDir: string): Promise<{
         });
         if (stderr.trim()) throw new Error(stderr.trim());
         const required = parseGlibcNeeds(stdout);
-        if (required && compareVersions(required, GLIBC_BUILD_CEILING) > 0) {
+        if (enforceCeiling && required && compareVersions(required, GLIBC_BUILD_CEILING) > 0) {
           throw new Error(
             `requires GLIBC_${required}, exceeding build ceiling ${GLIBC_BUILD_CEILING}`,
           );
