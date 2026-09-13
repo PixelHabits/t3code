@@ -22,7 +22,9 @@ interface AfterPackContext {
 export default async function afterPack(context: AfterPackContext): Promise<void> {
   await prepareServerCompileCache(context);
   await removeSharedWriteAccess(context.appOutDir);
-  const { minimum } = await scanGlibcNeeds(context.appOutDir);
+  // The ceiling guards packages that ship; an unpacked `dir` build runs where it was built.
+  const ships = context.targets.some((target) => target.name !== "dir");
+  const { minimum } = await scanGlibcNeeds(context.appOutDir, ships);
   for (const target of context.targets) {
     if (target.name !== "deb") continue;
     if (!target.options || !Array.isArray(target.options.depends)) {
