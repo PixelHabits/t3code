@@ -226,6 +226,8 @@ ${script}`,
       env: {
         ...process.env,
         HOME: home,
+        // Pinned: the remote scripts otherwise take the home from the host's XDG_DATA_HOME.
+        T3CODE_HOME: `${home}/.t3`,
         PATH: `${bin}:/usr/bin:/bin`,
         TEST_REAL_NODE: process.execPath,
         TEST_CLEAR_MARKER: options.clearMarkerOnReady ? "1" : "0",
