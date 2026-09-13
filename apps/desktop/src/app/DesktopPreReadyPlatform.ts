@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - pre-ready Electron setup reads settings and prepares the Linux desktop entry synchronously before app services are available.
+import { directoryExistsSync } from "@t3tools/shared/defaultT3Home";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -37,6 +38,7 @@ export const resolveEarlyLinuxElectronOptionsFromProcess =
       env: process.env,
       homeDirectory: NodeOS.homedir(),
       joinPath: NodePath.posix.join,
+      directoryExists: directoryExistsSync,
       readFileString: (path) => NodeFS.readFileSync(path, "utf8"),
     });
 

@@ -239,7 +239,8 @@ server.listen(0, "127.0.0.1", () => {
             const stop = yield* spawner.spawn(
               ChildProcess.make("/bin/sh", ["-s"], {
                 cwd: fixture,
-                env: { T3_TEST_STATE_DIR: fixture },
+                // The script resolves the T3 home from HOME before STATE_DIR is overridden.
+                env: { T3_TEST_STATE_DIR: fixture, HOME: fixture, PATH: "/usr/bin:/bin" },
                 stdin: Stream.make(new TextEncoder().encode(isolatedScript)),
               }),
             );

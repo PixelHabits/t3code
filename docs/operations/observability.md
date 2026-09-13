@@ -29,10 +29,12 @@ If you want a log message to show up in the trace file, emit it inside an active
 
 Completed spans are written as NDJSON records to `serverTracePath`. The default depends on how the
 server starts: production and explicitly configured homes use
-`<home>/userdata/logs/server.trace.ndjson` (so `~/.t3/userdata/...` by default, or
-`/custom/path/userdata/...` with `--home-dir /custom/path`), a linked worktree dev run uses
+`<home>/userdata/logs/server.trace.ndjson` (so the Linux default is
+`${XDG_DATA_HOME:-$HOME/.local/share}/t3code/userdata/...`, or
+`~/.t3/userdata/...` outside Linux, or `/custom/path/userdata/...` with `--home-dir /custom/path`),
+a linked worktree dev run uses
 `<worktree>/.t3/userdata/logs/server.trace.ndjson`, and an implicit dev run outside a linked
-worktree uses `~/.t3/dev/logs/server.trace.ndjson`.
+worktree uses `<T3 home>/dev/logs/server.trace.ndjson`.
 
 Important fields common to both record types:
 
@@ -189,7 +191,15 @@ Resolve the path for the launch mode once. Production and explicitly configured 
 state under the base directory's `userdata` folder:
 
 ```bash
-TRACE_FILE="${T3CODE_HOME:-$HOME/.t3}/userdata/logs/server.trace.ndjson"
+XDG_T3_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/t3code"
+if [ -n "${T3CODE_HOME:-}" ]; then
+  T3_HOME="$T3CODE_HOME"
+elif [ "$(uname -s)" = "Linux" ] && { [ -d "$XDG_T3_HOME" ] || [ ! -d "$HOME/.t3" ]; }; then
+  T3_HOME="$XDG_T3_HOME"
+else
+  T3_HOME="$HOME/.t3"
+fi
+TRACE_FILE="$T3_HOME/userdata/logs/server.trace.ndjson"
 ```
 
 A dev server started from a linked worktree defaults to that worktree's local home:
@@ -201,7 +211,7 @@ TRACE_FILE="$WORKTREE/.t3/userdata/logs/server.trace.ndjson"
 Only an implicit dev run outside a linked worktree uses the shared dev directory:
 
 ```bash
-TRACE_FILE="$HOME/.t3/dev/logs/server.trace.ndjson"
+TRACE_FILE="$T3_HOME/dev/logs/server.trace.ndjson"
 ```
 
 Tail the selected file:

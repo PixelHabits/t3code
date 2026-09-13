@@ -283,6 +283,10 @@
       "types": "./src/devHome.ts",
       "import": "./src/devHome.ts"
     },
+    "./defaultT3Home": {
+      "types": "./src/defaultT3Home.ts",
+      "import": "./src/defaultT3Home.ts"
+    },
     "./devProxy": {
       "types": "./src/devProxy.ts",
       "import": "./src/devProxy.ts"

@@ -136,6 +136,23 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
+  it.effect("uses XDG_DATA_HOME for implicit Linux state", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        {
+          platform: "linux",
+          homeDirectory: "/home/alice",
+        },
+        {
+          XDG_DATA_HOME: "/data",
+        },
+      );
+
+      assert.equal(environment.baseDir, "/data/t3code");
+      assert.equal(environment.stateDir, "/data/t3code/userdata");
+    }),
+  );
+
   it.effect("keeps implicit development state separate from production state", () =>
     Effect.gen(function* () {
       const development = yield* makeEnvironment(
