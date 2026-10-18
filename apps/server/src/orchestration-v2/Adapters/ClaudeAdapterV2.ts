@@ -27,6 +27,7 @@ import {
 
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import { pastedUrl } from "@t3tools/shared/oauthCallback";
+import { encodeResourceAttributes } from "@t3tools/shared/otelEnvironment";
 import {
   addClaudeLedgerUsage,
   claudeLedgerDelta,
@@ -2875,6 +2876,20 @@ export const readClaudeLaunchArgSettings = Effect.fn("ClaudeAdapterV2.readLaunch
     )) as ClaudeSdkSettings;
   },
 );
+
+// Claude Code stamps these resource attributes on all of its telemetry. One
+// process serves one thread across many turns, so no per-run id belongs here.
+function claudeTelemetryEnvironment(
+  environment: NodeJS.ProcessEnv,
+  thread: OrchestrationV2AppThread,
+): NodeJS.ProcessEnv {
+  const ids = encodeResourceAttributes({
+    "t3.thread_id": thread.id,
+    "t3.project_id": thread.projectId,
+  });
+  const existing = environment.OTEL_RESOURCE_ATTRIBUTES;
+  return { ...environment, OTEL_RESOURCE_ATTRIBUTES: existing ? `${existing},${ids}` : ids };
+}
 
 export const CLAUDE_T3_MCP_TOOL_WILDCARD = "mcp__t3-code__*";
 
@@ -14172,13 +14187,16 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ...(launchArgSettings === undefined
               ? {}
               : { sdkSettings: claudeSdkLaunchArgSettings(launchArgSettings) }),
-            environment: claudeQueryEnvironment(
-              adapterOptions.environment,
+            environment: claudeTelemetryEnvironment(
+              claudeQueryEnvironment(
+                adapterOptions.environment,
+                turnInput.appThread,
+                turnInput.appThread.lineage.relationshipToParent === "subagent"
+                  ? yield* resolveSubagentPromptCacheTtl(turnInput.runtimePolicy.cwd)
+                  : undefined,
+                shouldResume,
+              ),
               turnInput.appThread,
-              turnInput.appThread.lineage.relationshipToParent === "subagent"
-                ? yield* resolveSubagentPromptCacheTtl(turnInput.runtimePolicy.cwd)
-                : undefined,
-              shouldResume,
             ),
             tools: queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS,
             ...(mcpOverrides.allowedTools === undefined
