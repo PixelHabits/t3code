@@ -984,9 +984,11 @@ describe("ClaudeAdapterV2 approval cancellation", () => {
 const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(function* (
   binaryPath: string,
   environment: ProviderInstanceEnvironment = [],
+  threadId = ThreadId.make("thread-claude-binary-path"),
 ) {
   const executablePaths: Array<string | undefined> = [];
   const taskToolEnvironment: Array<string | undefined> = [];
+  const environments: Array<NodeJS.ProcessEnv | undefined> = [];
   const adapter = yield* ClaudeAdapterV2.createClaudeAdapterV2(
     {
       instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
@@ -1008,6 +1010,7 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
         Effect.sync(() => {
           executablePaths.push(input.options.pathToClaudeCodeExecutable);
           taskToolEnvironment.push(input.options.env?.CLAUDE_CODE_ENABLE_TODO_TOOLS);
+          environments.push(input.options.env);
           return {
             messages: Stream.never,
             offer: () => Effect.void,
@@ -1025,7 +1028,6 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
       assertComplete: Effect.void,
     }),
   );
-  const threadId = ThreadId.make("thread-claude-binary-path");
   const runtime = yield* adapter.openSession({
     threadId,
     providerSessionId: ProviderSessionId.make("provider-session-claude-binary-path"),
@@ -1047,7 +1049,7 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
       attachments: [],
     }),
   );
-  return { executablePaths, taskToolEnvironment };
+  return { executablePaths, taskToolEnvironment, environments };
 });
 
 describe("ClaudeAdapterV2 executable path", () => {
@@ -1155,6 +1157,36 @@ describe("ClaudeAdapterV2 resumeThread", () => {
         assert.equal(missing.nativeThreadRef?.nativeId, "native-thread-missing");
       }),
     ).pipe(
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+});
+
+describe("ClaudeAdapterV2 telemetry ids", () => {
+  it.effect("adds the thread and project ids to the Claude Code process environment", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const threadId = ThreadId.make("thread:delegated-task:command%3Amcp%3Aprobe");
+        const { environments } = yield* captureSdkExecutablePaths("~/bin/claude", [], threadId);
+
+        assert.deepEqual(
+          environments.map((env) => [env?.T3CODE_THREAD_ID, env?.OTEL_RESOURCE_ATTRIBUTES]),
+          [
+            [
+              threadId,
+              "deployment.environment=local" +
+                ",t3.thread_id=thread%3Adelegated-task%3Acommand%253Amcp%253Aprobe" +
+                ",t3.project_id=project-thread%3Adelegated-task%3Acommand%253Amcp%253Aprobe",
+            ],
+          ],
+        );
+      }),
+    ).pipe(
+      Effect.provideService(HostProcess.Environment, {
+        OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=local",
+      }),
       Effect.provide(
         Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
       ),

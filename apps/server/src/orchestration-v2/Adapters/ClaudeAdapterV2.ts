@@ -19,6 +19,7 @@ import {
 } from "./claudeWorkflowProgress.ts";
 
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
+import { encodeResourceAttributes } from "@t3tools/shared/otelEnvironment";
 import { normalizeClaudeTurnTokenUsage } from "../../provider/ClaudeTurnTokenUsage.ts";
 import {
   type CanUseTool,
@@ -1446,6 +1447,24 @@ const readClaudeAppendSystemPromptFile = Effect.fnUntraced(function* (input: {
       Effect.mapError((cause) => new ClaudeAppendSystemPromptFileError({ path: filePath, cause })),
     );
 });
+
+// Claude Code stamps these resource attributes on all of its telemetry. One
+// process serves one thread across many turns, so no per-run id belongs here.
+function claudeThreadEnvironment(
+  environment: NodeJS.ProcessEnv,
+  thread: OrchestrationV2AppThread,
+): NodeJS.ProcessEnv {
+  const ids = encodeResourceAttributes({
+    "t3.thread_id": thread.id,
+    "t3.project_id": thread.projectId,
+  });
+  const existing = environment.OTEL_RESOURCE_ATTRIBUTES;
+  return {
+    ...environment,
+    T3CODE_THREAD_ID: thread.id,
+    OTEL_RESOURCE_ATTRIBUTES: existing ? `${existing},${ids}` : ids,
+  };
+}
 
 export const CLAUDE_T3_MCP_TOOL_WILDCARD = "mcp__t3-code__*";
 
@@ -9285,12 +9304,15 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             cwd: turnInput.runtimePolicy.cwd,
             attachmentsDir,
             settings: adapterOptions.settings,
-            environment: claudeQueryEnvironment(
-              adapterOptions.environment,
+            environment: claudeThreadEnvironment(
+              claudeQueryEnvironment(
+                adapterOptions.environment,
+                turnInput.appThread,
+                turnInput.appThread.lineage.relationshipToParent === "subagent"
+                  ? yield* resolveSubagentPromptCacheTtl(turnInput.runtimePolicy.cwd)
+                  : undefined,
+              ),
               turnInput.appThread,
-              turnInput.appThread.lineage.relationshipToParent === "subagent"
-                ? yield* resolveSubagentPromptCacheTtl(turnInput.runtimePolicy.cwd)
-                : undefined,
             ),
             tools: queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS,
             ...(mcpOverrides.allowedTools === undefined

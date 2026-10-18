@@ -361,6 +361,11 @@ export const resolveSignalEndpoint = (
   });
 };
 
+export const encodeResourceAttributes = (attributes: Readonly<Record<string, string>>) =>
+  Object.entries(attributes)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join(",");
+
 /**
  * Provide this around Effect's OTLP exporters, which read
  * `OTEL_RESOURCE_ATTRIBUTES` for themselves and die when it does not decode,
@@ -370,9 +375,7 @@ export const layerResourceAttributes = (attributes: Readonly<Record<string, stri
   ConfigProvider.layerAdd(
     ConfigProvider.fromEnv({
       env: {
-        [RESOURCE_ATTRIBUTES]: Object.entries(attributes)
-          .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
-          .join(","),
+        [RESOURCE_ATTRIBUTES]: encodeResourceAttributes(attributes),
       },
       preserveEmptyStrings: true,
     }),
