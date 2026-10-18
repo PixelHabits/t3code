@@ -378,14 +378,17 @@ export const resolveSignalEndpoint = (
   });
 };
 
+export const encodeResourceAttributes = (attributes: Readonly<Record<string, string>>) =>
+  Object.entries(attributes)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join(",");
+
 /** Give OTLP exporters the accepted resource attributes so their own decoding cannot fail. */
 export const layerResourceAttributes = (attributes: Readonly<Record<string, string>>) =>
   ConfigProvider.layerAdd(
     ConfigProvider.fromEnv({
       env: {
-        [RESOURCE_ATTRIBUTES]: Object.entries(attributes)
-          .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
-          .join(","),
+        [RESOURCE_ATTRIBUTES]: encodeResourceAttributes(attributes),
       },
       preserveEmptyStrings: true,
     }),
