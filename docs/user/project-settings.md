@@ -206,8 +206,9 @@ are, and cleanup covers both the default folder and the custom one.
 Some projects keep a bare repository in a `.bare` folder, with a `.git` file containing
 `gitdir: ./.bare`, and every checkout in its own subfolder. For these projects, new worktrees go
 directly in the project folder and take the last part of the branch name: `feat/search` goes in
-`search`. The Worktree location setting does not apply. Cleanup removes only the worktrees T3 Code
-created there.
+`search`. The Worktree location setting does not apply. T3 Code names the branch before it creates
+the worktree, so new threads take a few seconds longer to start. Cleanup removes only the
+worktrees T3 Code created there.
 
 ## Fast worktree checkout on macOS
 
