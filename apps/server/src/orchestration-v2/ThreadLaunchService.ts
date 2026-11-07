@@ -577,9 +577,41 @@ const make = Effect.gen(function* () {
         },
       );
 
+      // An exact name stays as asked or goes unused, as a rename to it would fail.
+      const nameBranchFirst = (
+        cwd: string,
+        message: ThreadLaunchInitialMessage,
+        temporaryBranch: string,
+      ) =>
+        generateBranchNameFor(cwd, message).pipe(
+          Effect.flatMap(({ branch: named, exactName }) =>
+            git.resolveAvailableBranchName({ cwd, branch: named }).pipe(
+              Effect.filterOrFail(
+                (available) => !exactName || available === named,
+                () => `A branch named ${named} already exists.`,
+              ),
+            ),
+          ),
+          Effect.catch((error) =>
+            Effect.logWarning("Thread worktree branch naming failed", {
+              commandId: input.commandId,
+              threadId,
+              cause: error,
+            }).pipe(
+              Effect.andThen(
+                runId === null
+                  ? Effect.void
+                  : recordBranchRenameFailure(threadId, runId, temporaryBranch, Cause.fail(error)),
+              ),
+              Effect.as(temporaryBranch),
+            ),
+          ),
+        );
+
       const requestedBranch = input.workspaceStrategy.branch;
       const generatedTemporaryBranch =
         input.workspaceStrategy.type === "worktree" && requestedBranch === undefined;
+      let containerWorktree = false;
       let branch: string | null;
       if (generatedTemporaryBranch) {
         const uuid = yield* randomUuidV4;
@@ -692,6 +724,16 @@ const make = Effect.gen(function* () {
             }
           }
         }
+        // A container worktree's folder comes from its branch, so the branch is named before checkout.
+        if (
+          branch !== null &&
+          (generatedTemporaryBranch || isTemporaryWorktreeBranch(branch)) &&
+          (yield* git.isWorktreeContainer(project.workspaceRoot))
+        ) {
+          containerWorktree = true;
+          if (initialMessage !== undefined)
+            branch = yield* nameBranchFirst(project.workspaceRoot, initialMessage, branch);
+        }
         yield* setupTracker.stageStatus(threadId, "checkout", "running");
         let submoduleProgressReportedAt = Number.NEGATIVE_INFINITY;
         const worktree = yield* git
@@ -800,6 +842,7 @@ const make = Effect.gen(function* () {
 
       if (
         reused === undefined &&
+        !containerWorktree &&
         worktreePath !== null &&
         branch !== null &&
         initialMessage !== undefined &&

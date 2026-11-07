@@ -227,6 +227,7 @@ function makeHarness(options: HarnessOptions = {}) {
       remoteExists: options.remoteExists ?? (() => Effect.succeed(true)),
       remoteBranchExists: () => Effect.succeed(true),
       listLocalBranchNames: () => Effect.succeed([]),
+      isWorktreeContainer: () => Effect.succeed(false),
       removeWorktree,
       deleteLocalBranch,
       ...options.git,
@@ -2955,6 +2956,56 @@ it.effect("reports submodule downloads as their own setup step", () =>
         status: "done",
         detail: "vendor/o'hare",
       });
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect.each([
+  { label: "the generated name", generated: true },
+  { label: "the temporary branch when naming fails", generated: false },
+])("creates a worktree container's worktree on $label", ({ generated }) =>
+  Effect.gen(function* () {
+    const setupEntered = yield* Deferred.make<void>();
+    const harness = makeHarness({
+      git: {
+        isWorktreeContainer: (cwd) => Effect.succeed(cwd === "/repo"),
+        resolveAvailableBranchName: ({ branch }) => Effect.succeed(`${branch}-1`),
+      },
+      generateBranchName: () =>
+        generated
+          ? Effect.succeed({ branch: "feat/worktree-placement" })
+          : Effect.fail(
+              new TextGenerationError({ operation: "generateBranchName", detail: "offline" }),
+            ),
+      runSetup: () =>
+        Deferred.succeed(setupEntered, undefined).pipe(Effect.as({ status: "no-script" as const })),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: `launch:container:${generated}`,
+          thread: `thread:container:${generated}`,
+          message: "Add worktree placement",
+          workspace: { type: "worktree", baseRef: "main" },
+        }),
+      );
+      yield* Deferred.await(setupEntered);
+      assert.equal(harness.generateBranchName.mock.calls[0]?.[0].cwd, "/repo");
+      const created = harness.createWorktree.mock.calls[0]![0].newRefName!;
+      const projection = yield* threads.getThreadProjection(launched.threadId);
+      const notice = projection.turnItems.find((item) => item.type === "system_notice");
+      if (generated) {
+        assert.equal(created, "feat/worktree-placement-1");
+        assert.isUndefined(notice);
+      } else {
+        assert.match(created, /^t3\/[0-9a-f]{8}$/);
+        assert.include(notice?.type === "system_notice" ? notice.message : "", `stays ${created}.`);
+      }
+      assert.equal(projection.thread.branch, created);
+      assert.equal(harness.generateBranchName.mock.calls.length, 1);
+      assert.equal(harness.renameBranch.mock.calls.length, 0);
     }).pipe(Effect.provide(harness.layer));
   }),
 );
