@@ -5341,6 +5341,53 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         }),
     );
 
+    it.effect("creates a container project's worktrees inside the container and marks them", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        const source = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(source);
+        const container = yield* makeTmpDir("git-container-");
+        yield* git(source, ["clone", "--bare", "--", source, pathService.join(container, ".bare")]);
+        yield* fileSystem.writeFileString(pathService.join(container, ".git"), "gitdir: ./.bare\n");
+        const userWorktree = pathService.join(container, initialBranch);
+        yield* git(container, ["worktree", "add", "--", userWorktree, initialBranch]);
+        const worktreesDirectory = yield* makeTmpDir("custom-worktrees-");
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const hasMarker = (worktree: string) =>
+          git(worktree, ["rev-parse", "--absolute-git-dir"]).pipe(
+            Effect.flatMap((gitDir) =>
+              fileSystem.exists(pathService.join(gitDir, "t3code-created")),
+            ),
+          );
+
+        const created = yield* Effect.forEach(
+          ["feat/worktree-placement", "t3/add-search", "fix/worktree-placement"],
+          (newRefName) =>
+            driver.createWorktree(
+              { cwd: container, path: null, refName: initialBranch, newRefName },
+              { worktreesDirectory },
+            ),
+        );
+
+        assert.deepEqual(
+          created.map((result) => result.worktree.path),
+          ["worktree-placement", "add-search", "worktree-placement-1"].map((folder) =>
+            pathService.join(container, folder),
+          ),
+        );
+        for (const result of created) {
+          assert.equal(
+            yield* git(result.worktree.path, ["branch", "--show-current"]),
+            result.worktree.refName,
+          );
+          assert.isTrue(yield* hasMarker(result.worktree.path));
+        }
+        assert.isFalse(yield* hasMarker(userWorktree));
+        assert.deepEqual(yield* fileSystem.readDirectory(worktreesDirectory), []);
+      }),
+    );
+
     it.effect("keeps generated worktree folders short without changing long branch names", () =>
       Effect.gen(function* () {
         const pathService = yield* Path.Path;

@@ -32,6 +32,7 @@ import {
 import * as GitManager from "./GitManager.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import { makeIsWorktreeContainer } from "../vcs/worktreeContainer.ts";
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 
 export class GitWorkflowService extends Context.Service<
@@ -151,9 +152,9 @@ function nonRepositoryLocalStatus(): VcsStatusLocalResult {
   };
 }
 
-function nonRepositoryStatus(): VcsStatusResult {
+function withoutRemoteStatus(local: VcsStatusLocalResult): VcsStatusResult {
   return {
-    ...nonRepositoryLocalStatus(),
+    ...local,
     hasUpstream: false,
     aheadCount: 0,
     behindCount: 0,
@@ -172,12 +173,16 @@ function nonRepositoryListRefs(): VcsListRefsResult {
   };
 }
 
+const NO_CHECKOUT_DETAIL =
+  "This project folder holds the repository's worktrees and has no checkout of its own. Pick a branch that is already checked out, or start the thread in a new worktree.";
+
 /** @public */
 export const make = Effect.gen(function* () {
   const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const git = yield* GitVcsDriver.GitVcsDriver;
   const gitManager = yield* GitManager.GitManager;
   const fileSystem = yield* FileSystem.FileSystem;
+  const isWorktreeContainer = yield* makeIsWorktreeContainer;
 
   // Nested projects and path aliases must share the checkout's branch-mutation lease.
   const withCheckoutLease = <A, E, R>(rootPath: string, effect: Effect.Effect<A, E, R>) =>
@@ -186,29 +191,59 @@ export const make = Effect.gen(function* () {
       Effect.flatMap((cwd) => withWorkspaceLease(cwd, effect)),
     );
 
+  const routeFailureDetail = (cwd: string, detail: string) =>
+    Effect.map(isWorktreeContainer(cwd), (container) => (container ? NO_CHECKOUT_DETAIL : detail));
+
   const ensureGit = Effect.fn("GitWorkflowService.ensureGit")(function* (
     operation: string,
     cwd: string,
   ) {
-    const handle = yield* registry.resolve({ cwd }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new GitManagerError({
-            operation,
-            cwd,
-            detail: "Failed to resolve the VCS driver for this Git workflow.",
-            cause,
-          }),
-      ),
-    );
-    return handle;
+    return yield* registry
+      .resolve({ cwd })
+      .pipe(
+        Effect.catch((cause) =>
+          routeFailureDetail(cwd, "Failed to resolve the VCS driver for this Git workflow.").pipe(
+            Effect.flatMap((detail) =>
+              Effect.fail(new GitManagerError({ operation, cwd, detail, cause })),
+            ),
+          ),
+        ),
+      );
   });
 
+  const ensureCheckoutCommand = Effect.fn("GitWorkflowService.ensureCheckoutCommand")(function* (
+    operation: string,
+    cwd: string,
+  ) {
+    const handle = yield* registry
+      .resolve({ cwd })
+      .pipe(
+        Effect.catch((cause) =>
+          routeFailureDetail(cwd, "Failed to resolve the VCS driver for this Git command.").pipe(
+            Effect.flatMap((detail) =>
+              Effect.fail(
+                new GitCommandError({ operation, command: "vcs-route", cwd, detail, cause }),
+              ),
+            ),
+          ),
+        ),
+      );
+    return handle.repository.rootPath;
+  });
+
+  // A worktree container has no checkout, but branch, remote and worktree commands run in it.
   const ensureGitCommand = Effect.fn("GitWorkflowService.ensureGitCommand")(function* (
     operation: string,
     cwd: string,
   ) {
-    const handle = yield* registry.resolve({ cwd }).pipe(
+    return yield* registry.resolve({ cwd }).pipe(
+      Effect.map((handle) => handle.repository.rootPath),
+      Effect.catchTags({
+        VcsUnsupportedOperationError: (cause) =>
+          Effect.flatMap(isWorktreeContainer(cwd), (container) =>
+            container ? Effect.succeed(cwd) : Effect.fail(cause),
+          ),
+      }),
       Effect.mapError(
         (cause) =>
           new GitCommandError({
@@ -220,28 +255,44 @@ export const make = Effect.gen(function* () {
           }),
       ),
     );
-    return handle;
   });
 
-  const detectGitRepositoryForStatus = Effect.fn("GitWorkflowService.detectGitRepositoryForStatus")(
-    function* (operation: string, cwd: string) {
-      const handle = yield* registry.detect({ cwd }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new GitManagerError({
-              operation,
-              cwd,
-              detail: "Failed to detect a VCS repository for this Git workflow.",
-              cause,
-            }),
-        ),
-      );
-      if (!handle) {
-        return false;
-      }
-      return true;
-    },
-  );
+  const detectStatusTarget = Effect.fn("GitWorkflowService.detectStatusTarget")(function* (
+    operation: string,
+    cwd: string,
+  ) {
+    const handle = yield* registry.detect({ cwd }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new GitManagerError({
+            operation,
+            cwd,
+            detail: "Failed to detect a VCS repository for this Git workflow.",
+            cause,
+          }),
+      ),
+    );
+    if (handle) return "checkout" as const;
+    return (yield* isWorktreeContainer(cwd)) ? ("container" as const) : null;
+  });
+
+  // Clients offer worktree threads for a repository; a container is one with no branch checked out.
+  const containerLocalStatus = Effect.fn("GitWorkflowService.containerLocalStatus")(function* (
+    cwd: string,
+  ) {
+    const [rootPath, remotes] = yield* Effect.all([
+      fileSystem.realPath(cwd).pipe(Effect.orElseSucceed(() => cwd)),
+      git.execute({ operation: "GitWorkflowService.containerLocalStatus", cwd, args: ["remote"] }),
+    ]);
+    return {
+      isRepo: true,
+      hasPrimaryRemote: remotes.stdout.trim().length > 0,
+      isDefaultRef: false,
+      refName: null,
+      hasWorkingTreeChanges: false,
+      workingTree: { rootPath, files: [], insertions: 0, deletions: 0 },
+    } satisfies VcsStatusLocalResult;
+  });
 
   const detectGitRepositoryForCommand = Effect.fn(
     "GitWorkflowService.detectGitRepositoryForCommand",
@@ -258,10 +309,7 @@ export const make = Effect.gen(function* () {
           }),
       ),
     );
-    if (!handle) {
-      return false;
-    }
-    return true;
+    return handle !== null || (yield* isWorktreeContainer(cwd));
   });
 
   const routeGitManager =
@@ -321,23 +369,29 @@ export const make = Effect.gen(function* () {
           );
     }),
     status: Effect.fn("GitWorkflowService.status")(function (input) {
-      return detectGitRepositoryForStatus("GitWorkflowService.status", input.cwd).pipe(
-        Effect.flatMap((isGitRepository) =>
-          isGitRepository ? gitManager.status(input) : Effect.succeed(nonRepositoryStatus()),
+      return detectStatusTarget("GitWorkflowService.status", input.cwd).pipe(
+        Effect.flatMap((target) =>
+          target === "checkout"
+            ? gitManager.status(input)
+            : target === "container"
+              ? Effect.map(containerLocalStatus(input.cwd), withoutRemoteStatus)
+              : Effect.succeed(withoutRemoteStatus(nonRepositoryLocalStatus())),
         ),
       );
     }),
     localStatus: Effect.fn("GitWorkflowService.localStatus")(function (input) {
-      return detectGitRepositoryForStatus("GitWorkflowService.localStatus", input.cwd).pipe(
-        Effect.flatMap((isGitRepository) =>
-          isGitRepository
+      return detectStatusTarget("GitWorkflowService.localStatus", input.cwd).pipe(
+        Effect.flatMap((target) =>
+          target === "checkout"
             ? gitManager.localStatus(input)
-            : Effect.succeed(nonRepositoryLocalStatus()),
+            : target === "container"
+              ? containerLocalStatus(input.cwd)
+              : Effect.succeed(nonRepositoryLocalStatus()),
         ),
       );
     }),
     currentBranch: Effect.fn("GitWorkflowService.currentBranch")(function* (cwd) {
-      if (!(yield* detectGitRepositoryForStatus("GitWorkflowService.currentBranch", cwd))) {
+      if ((yield* detectStatusTarget("GitWorkflowService.currentBranch", cwd)) !== "checkout") {
         return null;
       }
       const result = yield* git.execute({
@@ -363,9 +417,9 @@ export const make = Effect.gen(function* () {
       });
     }),
     remoteStatus: Effect.fn("GitWorkflowService.remoteStatus")(function (input, options) {
-      return detectGitRepositoryForStatus("GitWorkflowService.remoteStatus", input.cwd).pipe(
-        Effect.flatMap((isGitRepository) =>
-          isGitRepository ? gitManager.remoteStatus(input, options) : Effect.succeed(null),
+      return detectStatusTarget("GitWorkflowService.remoteStatus", input.cwd).pipe(
+        Effect.flatMap((target) =>
+          target === "checkout" ? gitManager.remoteStatus(input, options) : Effect.succeed(null),
         ),
       );
     }),
@@ -386,7 +440,7 @@ export const make = Effect.gen(function* () {
         );
     }),
     pullCurrentBranch: Effect.fn("GitWorkflowService.pullCurrentBranch")(function (cwd) {
-      return ensureGitCommand("GitWorkflowService.pullCurrentBranch", cwd).pipe(
+      return ensureCheckoutCommand("GitWorkflowService.pullCurrentBranch", cwd).pipe(
         Effect.andThen(git.pullCurrentBranch(cwd)),
       );
     }),
@@ -487,18 +541,18 @@ export const make = Effect.gen(function* () {
       );
     }),
     createRef: Effect.fn("GitWorkflowService.createRef")(function (input) {
-      return ensureGitCommand("GitWorkflowService.createRef", input.cwd).pipe(
-        Effect.flatMap((handle) =>
-          input.switchRef
-            ? withCheckoutLease(handle.repository.rootPath, git.createRef(input))
-            : git.createRef(input),
-        ),
-      );
+      return input.switchRef
+        ? ensureCheckoutCommand("GitWorkflowService.createRef", input.cwd).pipe(
+            Effect.flatMap((rootPath) => withCheckoutLease(rootPath, git.createRef(input))),
+          )
+        : ensureGitCommand("GitWorkflowService.createRef", input.cwd).pipe(
+            Effect.andThen(git.createRef(input)),
+          );
     }),
     switchRef: Effect.fn("GitWorkflowService.switchRef")(function (input) {
-      return ensureGitCommand("GitWorkflowService.switchRef", input.cwd).pipe(
-        Effect.flatMap((handle) =>
-          withCheckoutLease(handle.repository.rootPath, Effect.scoped(git.switchRef(input))),
+      return ensureCheckoutCommand("GitWorkflowService.switchRef", input.cwd).pipe(
+        Effect.flatMap((rootPath) =>
+          withCheckoutLease(rootPath, Effect.scoped(git.switchRef(input))),
         ),
       );
     }),

@@ -1,4 +1,5 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import {
   ProjectId,
@@ -9,6 +10,7 @@ import {
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
 import { TestClock } from "effect/testing";
@@ -18,6 +20,7 @@ import * as TerminalManager from "../terminal/Manager.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectService from "./ProjectService.ts";
 import * as ProjectSetupScriptRunner from "./ProjectSetupScriptRunner.ts";
+import * as T3ProjectFileLoader from "./T3ProjectFileLoader.ts";
 
 const threadId = "thread-1";
 const terminalId = "setup-setup";
@@ -41,6 +44,9 @@ const makeHarness = Effect.fn(function* (options: {
   readonly history?: string;
   readonly opening?: Deferred.Deferred<void>;
   readonly shell?: string | null;
+  readonly workspaceRoot?: string;
+  readonly worktreePath?: string;
+  readonly trigger?: "setup" | "settle";
 }) {
   const listeners = new Set<(event: TerminalEvent) => Effect.Effect<void>>();
   const writes = yield* Queue.unbounded<string>();
@@ -74,16 +80,18 @@ const makeHarness = Effect.fn(function* (options: {
         }),
         ServerSettings.layerTest(),
         NodeCrypto.layer,
+        T3ProjectFileLoader.layer.pipe(Layer.provideMerge(NodeServices.layer)),
       ),
     ),
   );
   const start = runner.runForThread({
     threadId,
-    worktreePath: "/repo/.t3/worktrees/feature",
+    worktreePath: options.worktreePath ?? "/repo/.t3/worktrees/feature",
+    ...(options.trigger === undefined ? {} : { trigger: options.trigger }),
     observeCompletion: { onOutputLine: (line) => Queue.offer(outputLines, line) },
     project: {
       id: ProjectId.make("project-1"),
-      workspaceRoot: "/repo",
+      workspaceRoot: options.workspaceRoot ?? "/repo",
       scripts: [
         {
           id: "setup",
@@ -197,5 +205,40 @@ describe("ProjectSetupScriptRunner", () => {
         expect(yield* Queue.size(writes)).toBe(0);
         expect(listeners.size).toBe(0);
       }),
+  );
+
+  it.effect.each([
+    { trigger: "setup", command: "node scripts/setup-worktree.ts" },
+    { trigger: "settle", command: "vp run clean" },
+  ] as const)("runs a worktree container checkout's own t3.json $trigger script", (input) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const container = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-setup-container-",
+      });
+      yield* fileSystem.makeDirectory(`${container}/.bare`);
+      yield* fileSystem.writeFileString(`${container}/.bare/config`, "[core]\n\tbare = true\n");
+      yield* fileSystem.writeFileString(`${container}/.git`, "gitdir: ./.bare\n");
+      yield* fileSystem.makeDirectory(`${container}/feature`);
+      yield* fileSystem.writeFileString(
+        `${container}/feature/t3.json`,
+        JSON.stringify({
+          scripts: [
+            { name: "Clean", command: "vp run clean", runOnSettle: true },
+            {
+              name: "Setup Worktree",
+              command: "node scripts/setup-worktree.ts",
+              runOnWorktreeCreate: true,
+            },
+          ],
+        }),
+      );
+      const { start } = yield* makeHarness({
+        workspaceRoot: container,
+        worktreePath: `${container}/feature`,
+        trigger: input.trigger,
+      });
+      expect(yield* start).toMatchObject({ status: "started", scriptCommand: input.command });
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 });

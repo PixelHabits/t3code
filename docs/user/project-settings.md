@@ -180,7 +180,9 @@ project crumb.
 The Projects category, under Code, holds the project's name, icon, actions,
 checkouts and removal. Actions belong to a project: editing them creates the project's own list
 on each selected environment, and reset returns to the environment's shared list. A project's
-`t3.json` actions can be imported there.
+`t3.json` actions can be imported there. A project that keeps a bare repository beside its
+checkouts, described under [Worktree location](#worktree-location), works differently: each new
+worktree runs the setup and settle actions from its own `t3.json`, not the project's actions.
 
 Settings a repository can also declare in `t3.json`, such as the workspace for new threads,
 resolve in one order: a project override, then the environment setting, then `t3.json`, then the
@@ -200,6 +202,12 @@ New worktrees go in the `worktrees` folder of the T3 home directory. To put them
 such as another drive, set **Settings → Worktrees → Worktree location** to an absolute path like
 `D:\worktrees` or `~/worktrees`. The setting is per machine. Existing worktrees stay where they
 are, and cleanup covers both the default folder and the custom one.
+
+Some projects keep a bare repository in a `.bare` folder, with a `.git` file containing
+`gitdir: ./.bare`, and every checkout in its own subfolder. For these projects, new worktrees go
+directly in the project folder and take the last part of the branch name: `feat/search` goes in
+`search`. The Worktree location setting does not apply. Cleanup removes only the worktrees T3 Code
+created there.
 
 ## Fast worktree checkout on macOS
 

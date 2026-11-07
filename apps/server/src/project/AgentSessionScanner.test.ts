@@ -962,11 +962,14 @@ it.layer(NodeServices.layer)("AgentSessionScanner", (it) => {
           const dev = path.join(bare, "dev");
           const prod = path.join(bare, "prod");
           const managed = path.join(configBaseDir, "worktrees", "t3code", "sandbox");
-          for (const [index, cwd] of [bare, dev, prod, managed].entries()) {
+          const created = path.join(bare, "created");
+          for (const [index, cwd] of [bare, dev, prod, managed, created].entries()) {
             if (cwd !== bare) {
               const gitDir = path.join(bareGitDir, "worktrees", path.basename(cwd));
               yield* fileSystem.makeDirectory(gitDir, { recursive: true });
               yield* fileSystem.writeFileString(path.join(gitDir, "commondir"), "../..\n");
+              if (cwd === created)
+                yield* fileSystem.writeFileString(path.join(gitDir, "t3code-created"), "");
               yield* fileSystem.makeDirectory(cwd, { recursive: true });
               yield* fileSystem.writeFileString(path.join(cwd, ".git"), `gitdir: ${gitDir}\n`);
             }

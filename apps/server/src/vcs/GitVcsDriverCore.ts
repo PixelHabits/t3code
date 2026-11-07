@@ -44,6 +44,7 @@ import * as GitVcsDriver from "./GitVcsDriver.ts";
 import { removeEmptyDirectory, type RemoveEmptyDirectoryError } from "./removeEmptyDirectory.ts";
 import { explicitBareRepositoryEnv, gitConfigEnv } from "./VcsProcess.ts";
 import { makeWorktreeCheckoutCache } from "./worktreeCheckoutCache.ts";
+import { CREATED_WORKTREE_MARKER, makeIsWorktreeContainer } from "./worktreeContainer.ts";
 import { removeLinkedWorktree } from "./worktreeRemoval.ts";
 import { resolveWorktreesDirectory } from "../worktreesDirectory.ts";
 import {
@@ -961,6 +962,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const { worktreesDir, worktreeCheckoutCacheDir } = yield* ServerConfig.ServerConfig;
   const isServerInternalPath = yield* makeIsServerInternalPath;
+  const isWorktreeContainer = yield* makeIsWorktreeContainer;
   const digest = yield* Digest.Digest;
   const hostPlatform = yield* HostProcess.Platform;
   const serviceScope = yield* Effect.scope;
@@ -4417,7 +4419,25 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     // Resolve sub/.. before taking the basename.
     const repoName = path.basename(path.resolve(input.cwd));
     let worktreePath = input.path;
-    if (worktreePath == null) {
+    if (worktreePath == null && (yield* isWorktreeContainer(input.cwd))) {
+      const container = path.resolve(input.cwd);
+      let folder = targetBranch.slice(targetBranch.lastIndexOf("/") + 1);
+      // Leave room for files beneath the worktree on Windows, regardless of branch length.
+      if (folder.length > 40) {
+        const hash = yield* digest.digest(Digest.sha256, new TextEncoder().encode(targetBranch));
+        // Avoid splitting a surrogate pair, which Git would list back as a different path.
+        const prefix = folder.slice(0, 23).replace(/[\uD800-\uDBFF]$/, "");
+        folder = `${prefix}-${Hex.encode(hash).slice(0, 16)}`;
+      }
+      worktreePath = path.join(container, folder);
+      for (
+        let suffix = 1;
+        yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => false));
+        suffix += 1
+      ) {
+        worktreePath = path.join(container, `${folder}-${suffix}`);
+      }
+    } else if (worktreePath == null) {
       const parentDir = resolveWorktreesDirectory(
         options?.worktreesDirectory ?? "",
         worktreesDir,
@@ -4524,6 +4544,26 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
 
     if (progress?.onWorktreeClaimed) {
       yield* progress.onWorktreeClaimed(worktreePath);
+    }
+
+    if (yield* isWorktreeContainer(path.dirname(path.resolve(input.cwd, worktreePath)))) {
+      const gitDir = yield* runGitStdout("GitVcsDriver.createWorktree.markCreated", worktreePath, [
+        "rev-parse",
+        "--absolute-git-dir",
+      ]);
+      const marker = path.join(gitDir.replace(/\n$/, ""), CREATED_WORKTREE_MARKER);
+      yield* fileSystem.writeFileString(marker, "").pipe(
+        Effect.mapError(
+          (cause) =>
+            new GitCommandError({
+              operation: "GitVcsDriver.createWorktree.markCreated",
+              command: "write marker",
+              cwd: input.cwd,
+              detail: `Could not write ${marker}.`,
+              cause,
+            }),
+        ),
+      );
     }
 
     // worktree add leaves submodules empty, potentially omitting project skills, tools or source.

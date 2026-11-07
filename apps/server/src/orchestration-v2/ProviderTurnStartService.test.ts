@@ -81,6 +81,8 @@ function startWithMissingWorktree(
     [managedWorktreesDir]: managedWorktreesDir,
     [`${managedWorktreesDir}/project`]: `${managedWorktreesDir}/project`,
   },
+  files: Record<string, string> = {},
+  workspaceRoot = "/tmp/provider-turn-start-project",
 ) {
   const threadId = ThreadId.make("thread_provider_turn_start_projection_failure");
   const runId = RunId.make("run_provider_turn_start_projection_failure");
@@ -152,6 +154,17 @@ function startWithMissingWorktree(
                     pathOrDescriptor: target,
                   }),
                 ),
+          readFileString: (target: string) =>
+            target in files
+              ? Effect.succeed(files[target])
+              : Effect.fail(
+                  PlatformError.systemError({
+                    _tag: "NotFound",
+                    module: "FileSystem",
+                    method: "readFileString",
+                    pathOrDescriptor: target,
+                  }),
+                ),
         } as never),
         layerWorktreeLocation(),
         Layer.mock(GitWorkflow.GitWorkflowService)({
@@ -160,8 +173,7 @@ function startWithMissingWorktree(
           listLocalBranchNames,
         }),
         Layer.mock(ProjectService.ProjectService)({
-          getById: () =>
-            Effect.succeedSome({ workspaceRoot: "/tmp/provider-turn-start-project" } as never),
+          getById: () => Effect.succeedSome({ workspaceRoot } as never),
         }),
         Layer.mock(ProjectionStore.ProjectionStoreV2)({
           getThreadRecords: () => {
@@ -214,6 +226,15 @@ function startWithMissingWorktree(
   };
 }
 
+const containerRealPaths = {
+  "/tmp/container": "/tmp/container",
+  "/tmp/container/.bare": "/tmp/container/.bare",
+};
+const containerFiles = {
+  "/tmp/container/.git": "gitdir: ./.bare\n",
+  "/tmp/container/.bare/config": "[core]\n\tbare = true\n",
+};
+
 it.each([
   {
     label: "<managed>/<repo>/<branch>",
@@ -263,8 +284,52 @@ it.each([
     recreated: false,
   },
   { label: "a relative path", worktreePath: "project/feature-restore", recreated: false },
+  {
+    label: "a direct child of the project's worktree container",
+    worktreePath: "/tmp/container/feature-restore",
+    realPaths: containerRealPaths,
+    files: containerFiles,
+    workspaceRoot: "/tmp/container",
+    recreated: true,
+  },
+  {
+    label: "a direct child of another project's worktree container",
+    worktreePath: "/tmp/container/feature-restore",
+    realPaths: containerRealPaths,
+    files: containerFiles,
+    recreated: false,
+  },
+  {
+    label: "a folder nested below a worktree container's child",
+    worktreePath: "/tmp/container/feature-restore/nested",
+    realPaths: containerRealPaths,
+    files: containerFiles,
+    workspaceRoot: "/tmp/container",
+    recreated: false,
+  },
+  {
+    label: "a child of a container whose .bare is not bare",
+    worktreePath: "/tmp/container/feature-restore",
+    realPaths: containerRealPaths,
+    files: { ...containerFiles, "/tmp/container/.bare/config": "[core]\n\tbare = false\n" },
+    workspaceRoot: "/tmp/container",
+    recreated: false,
+  },
+  {
+    label: "a child of a folder whose .git file points elsewhere",
+    worktreePath: "/tmp/container/feature-restore",
+    realPaths: { ...containerRealPaths, "/tmp/other/.git": "/tmp/other/.git" },
+    files: { ...containerFiles, "/tmp/container/.git": "gitdir: /tmp/other/.git\n" },
+    workspaceRoot: "/tmp/container",
+    recreated: false,
+  },
 ])("recreates a missing worktree only at the managed location: $label", async (input) => {
-  const harness = startWithMissingWorktree(input.worktreePath, input.realPaths);
+  const harness = startWithMissingWorktree(
+    input.worktreePath,
+    input.realPaths,
+    input.files,
+    input.workspaceRoot,
+  );
   await harness.start;
   expect(harness.createWorktree).toHaveBeenCalledTimes(input.recreated ? 1 : 0);
 });

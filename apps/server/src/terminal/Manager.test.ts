@@ -38,6 +38,7 @@ import * as ProcessRunner from "../processRunner.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
+import * as T3ProjectFileLoader from "../project/T3ProjectFileLoader.ts";
 import * as TerminalManager from "./Manager.ts";
 import { terminalOutputStream } from "./OutputProtocol.ts";
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
@@ -1601,6 +1602,7 @@ it.layer(
                 getThreadShell: () => Effect.succeed(null),
               }),
               ServerSettings.layerTest(),
+              T3ProjectFileLoader.layer,
               Layer.succeed(HostProcess.Platform, "linux"),
               Layer.succeed(HostProcess.Environment, env),
             ),
@@ -1750,6 +1752,7 @@ it.layer(
               getThreadShell: () => Effect.succeed(null),
             }),
             ServerSettings.layerTest(),
+            T3ProjectFileLoader.layer,
           ),
         ),
       );

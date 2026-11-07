@@ -1,4 +1,10 @@
-import { linkOriginIsFenced, ProjectId, type ProjectScript, ThreadId } from "@t3tools/contracts";
+import {
+  linkOriginIsFenced,
+  ProjectId,
+  type ProjectScript,
+  type T3ProjectFileScript,
+  ThreadId,
+} from "@t3tools/contracts";
 import {
   projectScriptRuntimeEnv,
   projectScriptTerminalInput,
@@ -19,7 +25,9 @@ import * as Schema from "effect/Schema";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
+import { makeIsWorktreeContainer } from "../vcs/worktreeContainer.ts";
 import * as ProjectService from "./ProjectService.ts";
+import * as T3ProjectFileLoader from "./T3ProjectFileLoader.ts";
 
 export interface ProjectSetupScriptRunnerResultNoScript {
   readonly status: "no-script";
@@ -193,9 +201,23 @@ function wrapCommandForCompletion(
   }
 }
 
+function fileProjectScript(script: T3ProjectFileScript, index: number): ProjectScript {
+  return {
+    id: `t3-json-${index + 1}`,
+    name: script.name,
+    command: script.command,
+    icon: script.icon ?? "play",
+    runOnWorktreeCreate: script.runOnWorktreeCreate ?? false,
+    runOnSettle: script.runOnSettle ?? false,
+    ...(script.async === undefined ? {} : { async: script.async }),
+  };
+}
+
 /** @public */
 export const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
+  const projectFiles = yield* T3ProjectFileLoader.T3ProjectFileLoader;
+  const isWorktreeContainer = yield* makeIsWorktreeContainer;
   const threads = yield* ProjectionStore.ProjectionStoreV2;
   const terminalManager = yield* TerminalManager.TerminalManager;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
@@ -418,7 +440,12 @@ export const make = Effect.gen(function* () {
       ),
     );
     const trigger = input.trigger ?? "setup";
-    const scripts = resolveProjectScripts(settings, project);
+    // A worktree container has no t3.json; each checkout carries its own branch's scripts.
+    const scripts = (yield* isWorktreeContainer(project.workspaceRoot))
+      ? (Option.getOrUndefined(yield* projectFiles.load(input.worktreePath))?.scripts ?? []).map(
+          fileProjectScript,
+        )
+      : resolveProjectScripts(settings, project);
     const script =
       trigger === "settle" ? settleProjectScript(scripts) : setupProjectScript(scripts);
     if (!script) {

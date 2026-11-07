@@ -2122,6 +2122,51 @@ describe("storage cleanup reports and local file policies", () => {
       }),
     ),
   );
+  it.live("removes only the worktrees T3 Code created in a worktree container", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* cleanupFixture();
+        const { fs, command, repo } = fixture;
+        const git = yield* GitVcsDriver.GitVcsDriver;
+        const container = yield* fs.realPath(
+          yield* fs.makeTempDirectoryScoped({ prefix: "cleanup-container-" }),
+        );
+        yield* command(repo, ["clone", "--bare", "--", repo, `${container}/.bare`]);
+        yield* fs.writeFileString(`${container}/.git`, "gitdir: ./.bare\n");
+        const created = yield* git.createWorktree({
+          cwd: container,
+          path: null,
+          refName: "main",
+          newRefName: "feat/created",
+        });
+        const userMade = `${container}/dev`;
+        yield* command(container, ["worktree", "add", "-b", "dev", "--", userMade, "main"]);
+        fixture.setProjectRoots([container]);
+        fixture.setThreads([
+          shell({ branch: "feat/created", worktreePath: created.worktree.path }),
+          shell({
+            id: ThreadId.make("thread-2"),
+            lineage: {
+              rootThreadId: ThreadId.make("thread-2"),
+              parentThreadId: null,
+              relationshipToParent: null,
+            },
+            branch: "dev",
+            worktreePath: userMade,
+          }),
+        ]);
+
+        const report = yield* fixture.service.runNow;
+
+        expect(report.entries.filter((entry) => entry.path?.startsWith(container))).toMatchObject([
+          { path: `${container}/created`, outcome: "removed" },
+          { path: userMade, outcome: "kept", reason: "Not created by T3 Code" },
+        ]);
+        expect(yield* fs.exists(`${container}/created`)).toBe(false);
+        expect(yield* fs.readFileString(`${userMade}/tracked.txt`)).toBe("original\n");
+      }),
+    ),
+  );
   it.live.each(["before-check", "while-measuring"] as const)(
     "keeps a worktree protected by a missing project root (%s)",
     (timing) =>

@@ -48,6 +48,7 @@ import * as TerminalManager from "./terminal/Manager.ts";
 import { isFilesystemRoot, managedWorktreesDirectories } from "./worktreesDirectory.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import { isNonRepositoryGitStderr } from "./vcs/GitVcsDriverCore.ts";
+import { CREATED_WORKTREE_MARKER, makeIsWorktreeContainer } from "./vcs/worktreeContainer.ts";
 import { removeLinkedWorktree } from "./vcs/worktreeRemoval.ts";
 import { withWorkspaceLease } from "./workspace/workspaceLease.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -308,6 +309,7 @@ const make = Effect.gen(function* () {
   const terminals = yield* TerminalManager.TerminalManager;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const isWorktreeContainer = yield* makeIsWorktreeContainer;
   const liveTerminals = new Map<string, Map<string, TerminalSummary>>();
   const orphanSizes = new Map<string, number | null>();
   const noteTerminal = (terminal: TerminalSummary) => {
@@ -912,6 +914,18 @@ const make = Effect.gen(function* () {
       });
   });
 
+  // Folders in a worktree container belong to the user unless T3 Code marked them at creation.
+  const createdByT3Code = Effect.fn("StorageCleanup.createdByT3Code")(function* (
+    worktreePath: string,
+  ) {
+    const gitDir = yield* git.execute({
+      operation: "StorageCleanup.createdByT3Code",
+      cwd: worktreePath,
+      args: ["rev-parse", "--absolute-git-dir"],
+    });
+    return yield* fs.exists(path.join(gitDir.stdout.replace(/\n$/, ""), CREATED_WORKTREE_MARKER));
+  });
+
   const cleanWorktrees = Effect.fn("StorageCleanup.cleanWorktrees")(function* (
     serverSettings: ServerSettings,
     now: number,
@@ -942,10 +956,12 @@ const make = Effect.gen(function* () {
       const realParent = yield* fs.realPath(path.dirname(worktreePath));
       if (realPath !== path.join(realParent, path.basename(worktreePath)))
         return "worktree is a symbolic link";
-      if (!roots.some((root) => inside(root, realPath)))
+      const managed = roots.some((root) => inside(root, realPath));
+      if (!managed && !(yield* isWorktreeContainer(realParent)))
         return "outside the managed worktree folder";
       if ((yield* fs.stat(path.join(worktreePath, ".git"))).type !== "File")
         return "not a linked worktree";
+      if (!managed && !(yield* createdByT3Code(worktreePath))) return "not created by T3 Code";
       return null;
     });
     const deletedRows = yield* sql<{ payload_json: string; workspaceRoot: string }>`

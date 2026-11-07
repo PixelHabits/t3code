@@ -15,6 +15,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
@@ -181,6 +182,7 @@ export const make = Effect.gen(function* () {
   const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
   const projectLocks = yield* KeyedLock.make<ProjectId>();
   const workspaceLocks = yield* KeyedLock.make<string>();
@@ -343,7 +345,8 @@ export const make = Effect.gen(function* () {
   const workspaceScanDirectory = Effect.fn("ProjectService.workspaceScanDirectory")(
     function* (cwd: string) {
       if (yield* fileSystem.exists(cwd).pipe(Effect.orElseSucceed(() => true))) return cwd;
-      if (!(yield* isManagedWorktreePath(cwd))) return cwd;
+      if (!(yield* isManagedWorktreePath({ worktreePath: cwd, workspaceRoot: path.dirname(cwd) })))
+        return cwd;
       const snapshot = yield* Effect.flatten(
         threadProjections.readShellSnapshot({ worktreePath: cwd }),
       );
