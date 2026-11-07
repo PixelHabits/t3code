@@ -451,6 +451,11 @@ export class GitVcsDriver extends Context.Service<
     readonly renameBranch: (
       input: GitRenameBranchInput,
     ) => Effect.Effect<GitRenameBranchResult, GitCommandError>;
+    /** `branch`, or the first free `branch-<n>`; flattened when a parent ref blocks it. */
+    readonly resolveAvailableBranchName: (
+      cwd: string,
+      branch: string,
+    ) => Effect.Effect<string, GitCommandError>;
     readonly createRef: (
       input: VcsCreateRefInput,
     ) => Effect.Effect<VcsCreateRefResult, GitCommandError>;

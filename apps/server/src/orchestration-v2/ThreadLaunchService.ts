@@ -440,7 +440,27 @@ const make = Effect.gen(function* () {
         },
       );
 
+      // An exact name stays as asked or goes unused, as a rename to it would fail.
+      const nameBranchFirst = (cwd: string, message: ThreadLaunchInitialMessage) =>
+        generateBranchNameFor(cwd, message).pipe(
+          Effect.flatMap(({ branch: named, exactName }) =>
+            git
+              .resolveAvailableBranchName({ cwd, branch: named })
+              .pipe(
+                Effect.map((available) => (exactName && available !== named ? null : available)),
+              ),
+          ),
+          Effect.catch((cause) =>
+            Effect.logWarning("Thread worktree branch naming failed", {
+              commandId: input.commandId,
+              threadId,
+              cause,
+            }).pipe(Effect.as(null)),
+          ),
+        );
+
       const requestedBranch = input.workspaceStrategy.branch;
+      let containerWorktree = false;
       let branch: string | null;
       if (input.workspaceStrategy.type === "worktree" && requestedBranch === undefined) {
         const uuid = yield* randomUuidV4;
@@ -491,6 +511,16 @@ const make = Effect.gen(function* () {
           }
         }
         if (shouldFetch) yield* setupTracker.stageStatus(threadId, "fetch", "done");
+        // A container worktree's folder comes from its branch, so the branch is named before checkout.
+        if (
+          branch !== null &&
+          isTemporaryWorktreeBranch(branch) &&
+          (yield* git.isWorktreeContainer(project.workspaceRoot))
+        ) {
+          containerWorktree = true;
+          if (initialMessage !== undefined)
+            branch = (yield* nameBranchFirst(project.workspaceRoot, initialMessage)) ?? branch;
+        }
         if (
           branch !== null &&
           isTemporaryWorktreeBranch(branch) &&
@@ -550,6 +580,7 @@ const make = Effect.gen(function* () {
 
       if (
         reused === undefined &&
+        !containerWorktree &&
         worktreePath !== null &&
         branch !== null &&
         initialMessage !== undefined &&

@@ -39,6 +39,8 @@ export class GitWorkflowService extends Context.Service<
   GitWorkflowService,
   {
     readonly repositoryRoot: (cwd: string) => Effect.Effect<string | null, GitManagerServiceError>;
+    /** A folder holding a bare `.bare` repository whose checkouts are all its direct children. */
+    readonly isWorktreeContainer: (cwd: string) => Effect.Effect<boolean>;
     readonly hasCommit: (input: {
       readonly cwd: string;
       readonly refName: string;
@@ -82,6 +84,10 @@ export class GitWorkflowService extends Context.Service<
       options?: GitVcsDriver.CreateWorktreeOptions,
     ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
     readonly listLocalBranchNames: (cwd: string) => Effect.Effect<string[], GitCommandError>;
+    readonly resolveAvailableBranchName: (input: {
+      readonly cwd: string;
+      readonly branch: string;
+    }) => Effect.Effect<string, GitCommandError>;
     readonly fetchRemote: (input: {
       readonly cwd: string;
       readonly remoteName: string;
@@ -335,6 +341,7 @@ export const make = Effect.gen(function* () {
         ),
       );
     }),
+    isWorktreeContainer,
     hasCommit: Effect.fn("GitWorkflowService.hasCommit")(function (input) {
       return ensureGitCommand("GitWorkflowService.hasCommit", input.cwd).pipe(
         Effect.andThen(
@@ -489,6 +496,13 @@ export const make = Effect.gen(function* () {
         Effect.andThen(git.listLocalBranchNames(cwd)),
       );
     }),
+    resolveAvailableBranchName: Effect.fn("GitWorkflowService.resolveAvailableBranchName")(
+      function (input) {
+        return ensureGitCommand("GitWorkflowService.resolveAvailableBranchName", input.cwd).pipe(
+          Effect.andThen(git.resolveAvailableBranchName(input.cwd, input.branch)),
+        );
+      },
+    ),
     fetchRemote: Effect.fn("GitWorkflowService.fetchRemote")(function (input) {
       return ensureGitCommand("GitWorkflowService.fetchRemote", input.cwd).pipe(
         Effect.andThen(git.fetchRemote(input)),

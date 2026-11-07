@@ -5443,6 +5443,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     renameBranch: Effect.fnUntraced(function* (input) {
       return yield* withListRefsInvalidation(input.cwd, renameBranch(input));
     }),
+    resolveAvailableBranchName,
     createRef: Effect.fnUntraced(function* (input) {
       return yield* withListRefsInvalidation(input.cwd, createRef(input));
     }),
