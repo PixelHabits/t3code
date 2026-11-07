@@ -44,6 +44,7 @@ import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { piHome, resolvePiSessionsDir } from "@t3tools/provider-pi/server/usage";
 import * as ServerSettings from "../serverSettings.ts";
 import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
+import { CREATED_WORKTREE_MARKER } from "../vcs/worktreeContainer.ts";
 import {
   createTranscriptJsonReader,
   createTranscriptJsonSelector,
@@ -1028,7 +1029,9 @@ export const make = Effect.gen(function* () {
     );
     for (const { directory, gitDir } of linkedWorktrees) {
       const commonDir = (commonDirTexts.get(path.join(gitDir, "commondir")) ?? "").trim();
-      if (commonDir.length === 0) {
+      // T3 Code's own container worktrees are thread checkouts, not projects.
+      const createdByT3Code = yield* statOption(path.join(gitDir, CREATED_WORKTREE_MARKER));
+      if (commonDir.length === 0 || Option.isSome(createdByT3Code)) {
         identities.set(directory, { _tag: "Worktree", gitDir, mainCheckout: null, git: null });
       } else
         repositories.push({

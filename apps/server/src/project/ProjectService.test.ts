@@ -784,7 +784,7 @@ it.effect("resolves a restored icon immediately after reselecting its saved path
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
-it.effect("refuses a worktree container as a new project and as a new workspace root", () =>
+it.effect("refuses a worktree container without a bare repository and accepts a bare one", () =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const processRunner = yield* ProcessRunner.ProcessRunner;
@@ -808,21 +808,19 @@ it.effect("refuses a worktree container as a new project and as a new workspace 
 
     yield* Effect.gen(function* () {
       const service = yield* ProjectService.ProjectService;
-      // As cloned the container is bare; Initialize Git or a config edit clears core.bare.
-      for (const coreBare of ["true", "false"]) {
-        yield* git(container, "config", "core.bare", coreBare);
-        const rejected = yield* service
-          .create({
-            commandId: CommandId.make(`command:container:create:${coreBare}`),
-            projectId: ProjectId.make(`project:container:${coreBare}`),
-            title: "Container",
-            workspaceRoot: container,
-          })
-          .pipe(Effect.flip);
-        assert.equal(rejected._tag, "ProjectInvalidError", `core.bare=${coreBare}`);
-        assert.include(rejected.message, "Add one of its worktrees");
-        assert.isTrue(Option.isNone(yield* service.getByWorkspaceRoot(container)));
-      }
+      // Initialize Git or a config edit clears core.bare, which leaves no repository to serve.
+      yield* git(container, "config", "core.bare", "false");
+      const rejected = yield* service
+        .create({
+          commandId: CommandId.make("command:container:create:false"),
+          projectId: ProjectId.make("project:container:false"),
+          title: "Container",
+          workspaceRoot: container,
+        })
+        .pipe(Effect.flip);
+      assert.equal(rejected._tag, "ProjectInvalidError");
+      assert.include(rejected.message, "Add one of its worktrees");
+      assert.isTrue(Option.isNone(yield* service.getByWorkspaceRoot(container)));
 
       const projectId = ProjectId.make("project:container:worktree");
       const worktree = yield* service.create({
@@ -843,6 +841,15 @@ it.effect("refuses a worktree container as a new project and as a new workspace 
         Option.getOrThrow(yield* service.getById(projectId)).workspaceRoot,
         worktree.workspaceRoot,
       );
+
+      yield* git(container, "config", "core.bare", "true");
+      yield* service.create({
+        commandId: CommandId.make("command:container:create:true"),
+        projectId: ProjectId.make("project:container:true"),
+        title: "Container",
+        workspaceRoot: container,
+      });
+      assert.isTrue(Option.isSome(yield* service.getByWorkspaceRoot(container)));
     }).pipe(Effect.provide(layerTest));
   }).pipe(Effect.provide(ProcessRunner.layer.pipe(Layer.provideMerge(NodeServices.layer)))),
 );

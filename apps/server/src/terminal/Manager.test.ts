@@ -46,6 +46,7 @@ import * as ProcessRunner from "../processRunner.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
+import * as T3ProjectFileLoader from "../project/T3ProjectFileLoader.ts";
 import * as TerminalManager from "./Manager.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import { makePrepareTerminalLaunch } from "../workspace/restoreMissingWorktree.ts";
@@ -2182,6 +2183,7 @@ it.layer(
                 getThreadShell: () => Effect.succeed(null),
               }),
               ServerSettings.layerTest(),
+              T3ProjectFileLoader.layer,
               Layer.succeed(HostProcess.Platform, "linux"),
               Layer.succeed(HostProcess.Environment, env),
             ),
@@ -2331,6 +2333,7 @@ it.layer(
               getThreadShell: () => Effect.succeed(null),
             }),
             ServerSettings.layerTest(),
+            T3ProjectFileLoader.layer,
           ),
         ),
       );
