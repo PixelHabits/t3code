@@ -279,12 +279,15 @@ export const layer: Layer.Layer<
           restoreFiles &&
           (yield* fileSystem.exists(worktreePath)) &&
           !(yield* fileSystem.exists(path.join(worktreePath, ".git")));
-        if (
-          (leftover || !(yield* fileSystem.exists(worktreePath))) &&
-          (yield* isManagedWorktreePath(worktreePath))
-        ) {
+        if (leftover || !(yield* fileSystem.exists(worktreePath))) {
           const project = yield* projects.get(context.thread.projectId);
-          if (Option.isSome(project)) {
+          if (
+            Option.isSome(project) &&
+            (yield* isManagedWorktreePath({
+              worktreePath,
+              workspaceRoot: project.value.workspaceRoot,
+            }))
+          ) {
             const recreate = gitWorkflow.pruneWorktrees({ cwd: project.value.workspaceRoot }).pipe(
               Effect.andThen(
                 gitWorkflow.createWorktree({

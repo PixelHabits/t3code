@@ -45,6 +45,7 @@ import { makeIsManagedWorktreePath } from "../worktreesDirectory.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
 import { makeIsWorktreeContainer } from "./worktreeContainer.ts";
+import { makeIsWorktreeContainer as makeIsBareWorktreeContainer } from "../vcs/worktreeContainer.ts";
 import { isWithinRoot } from "../workspace/KnownWorkspaces.ts";
 import {
   discoverFolders,
@@ -208,6 +209,7 @@ export const make = Effect.gen(function* () {
   const isWorktreeContainer = yield* makeIsWorktreeContainer.pipe(
     Effect.provide(ProcessRunner.layer),
   );
+  const isBareWorktreeContainer = yield* makeIsBareWorktreeContainer;
   const scope = yield* Effect.scope;
   const projectLocks = yield* KeyedLock.make<ProjectId>();
   const workspaceLocks = yield* KeyedLock.make<string>();
@@ -312,6 +314,8 @@ export const make = Effect.gen(function* () {
     projectId: ProjectId,
     workspaceRoot: string,
   ) {
+    // Git runs in a bare `.bare` container, so only the other worktree-only folders are refused.
+    if (yield* isBareWorktreeContainer(workspaceRoot)) return;
     if (!(yield* isWorktreeContainer(workspaceRoot))) return;
     return yield* new ProjectInvalidError({
       projectId,
@@ -505,7 +509,8 @@ export const make = Effect.gen(function* () {
   const workspaceScanDirectory = Effect.fn("ProjectService.workspaceScanDirectory")(
     function* (cwd: string) {
       if (yield* fileSystem.exists(cwd).pipe(Effect.orElseSucceed(() => true))) return cwd;
-      if (!(yield* isManagedWorktreePath(cwd))) return cwd;
+      if (!(yield* isManagedWorktreePath({ worktreePath: cwd, workspaceRoot: path.dirname(cwd) })))
+        return cwd;
       const snapshot = yield* Effect.flatten(
         threadProjections.readShellSnapshot({ worktreePath: cwd }),
       );

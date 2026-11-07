@@ -61,6 +61,7 @@ import { isFilesystemRoot, managedWorktreesDirectories } from "./worktreesDirect
 import * as CheckpointCaptureIndex from "./vcs/checkpointCaptureIndex.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import { isNonRepositoryGitStderr } from "./vcs/GitVcsDriverCore.ts";
+import { CREATED_WORKTREE_MARKER, makeIsWorktreeContainer } from "./vcs/worktreeContainer.ts";
 import { isLinkedWorktree, removeLinkedWorktree } from "./vcs/worktreeRemoval.ts";
 import * as TaskFolders from "./workspace/TaskFolders.ts";
 import { withWorkspaceLease } from "./workspace/workspaceLease.ts";
@@ -341,6 +342,7 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const taskFolders = yield* TaskFolders.TaskFolders;
+  const isWorktreeContainer = yield* makeIsWorktreeContainer;
   const liveTerminals = new Map<string, Map<string, TerminalSummary>>();
   const orphanSizes = new Map<string, number | null>();
   const noteTerminal = (terminal: TerminalSummary) => {
@@ -926,7 +928,11 @@ const make = Effect.gen(function* () {
       args: ["rev-parse", "--git-common-dir"],
     });
     const resolved = path.resolve(worktreePath, commonDir.stdout.trim());
-    return path.basename(resolved) === ".git" ? path.dirname(resolved) : resolved;
+    // Git opens a container's bare repository only through the container's `.git` file.
+    return path.basename(resolved) === ".git" ||
+      (path.basename(resolved) === ".bare" && (yield* isWorktreeContainer(path.dirname(resolved))))
+      ? path.dirname(resolved)
+      : resolved;
   });
 
   const localChangesReason = Effect.fn("StorageCleanup.localChangesReason")(function* (
@@ -1208,6 +1214,14 @@ const make = Effect.gen(function* () {
         ),
       );
   });
+  // Folders in a worktree container belong to the user unless T3 Code marked them at creation.
+  const createdByT3Code = Effect.fn("StorageCleanup.createdByT3Code")(function* (
+    worktreePath: string,
+  ) {
+    return yield* fs.exists(
+      path.join(yield* worktreeAdminDir(worktreePath), CREATED_WORKTREE_MARKER),
+    );
+  });
 
   const cleanWorktrees = Effect.fn("StorageCleanup.cleanWorktrees")(function* (
     serverSettings: ServerSettings,
@@ -1272,12 +1286,14 @@ const make = Effect.gen(function* () {
       const realParent = yield* fs.realPath(path.dirname(worktreePath));
       if (realPath !== path.join(realParent, path.basename(worktreePath)))
         return "worktree is a symbolic link";
-      if (!roots.some((root) => inside(root, realPath)))
+      const managed = roots.some((root) => inside(root, realPath));
+      if (!managed && !(yield* isWorktreeContainer(realParent)))
         return "outside the managed worktree folder";
       const linked = yield* isLinkedWorktree(worktreePath).pipe(
         Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(false)),
       );
       if (!linked) return "not a linked worktree";
+      if (!managed && !(yield* createdByT3Code(worktreePath))) return "not created by T3 Code";
       return null;
     });
     // The checks a single worktree passes before removal, for one checkout of a task folder.

@@ -234,12 +234,16 @@ export const makeRestoreMissingWorktree = Effect.gen(function* () {
     }
     const exists = yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => true));
     const leftover = exists && (yield* isLeftoverFolder(worktreePath));
-    if ((exists && !leftover) || !(yield* isManagedWorktreePath(worktreePath))) return;
+    if (exists && !leftover) return;
     const project = yield* projects.getById(thread.projectId).pipe(
       Effect.map(Option.getOrUndefined),
       Effect.orElseSucceed(() => undefined),
     );
-    if (project === undefined) return;
+    if (
+      project === undefined ||
+      !(yield* isManagedWorktreePath({ worktreePath, workspaceRoot: project.workspaceRoot }))
+    )
+      return;
     yield* Effect.logWarning("recreating missing worktree", {
       threadId: thread.id,
       worktreePath,

@@ -7,6 +7,7 @@ import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 
 import * as ServerConfig from "./config.ts";
 import * as ServerSettings from "./serverSettings.ts";
+import { makeIsWorktreeContainer } from "./vcs/worktreeContainer.ts";
 
 /** Null for filesystem roots or settings not absolute on this host, including synced foreign-platform paths. */
 export function resolveWorktreesDirectory(
@@ -44,12 +45,14 @@ export function managedWorktreesDirectories(
   return [...directories];
 }
 
-// Client paths/branches are untrusted; recreate only real paths matching managed-folder/repo/branch.
+// Client paths/branches are untrusted; recreate only real paths matching managed-folder/repo/branch
+// or, for a project rooted at a worktree container, container/folder.
 export const makeIsManagedWorktreePath = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const serverConfig = yield* ServerConfig.ServerConfig;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const isWorktreeContainer = yield* makeIsWorktreeContainer;
 
   // Match Git's symlink-following location: nearest real ancestor plus missing path components.
   const realLocation = (target: string): Effect.Effect<string> =>
@@ -62,7 +65,13 @@ export const makeIsManagedWorktreePath = Effect.gen(function* () {
       }),
     );
 
-  return Effect.fn("worktreesDirectory.isManagedWorktreePath")(function* (worktreePath: string) {
+  return Effect.fn("worktreesDirectory.isManagedWorktreePath")(function* ({
+    worktreePath,
+    workspaceRoot,
+  }: {
+    readonly worktreePath: string;
+    readonly workspaceRoot: string;
+  }) {
     // git resolves a relative path against the project, not the server cwd.
     if (!path.isAbsolute(worktreePath)) return false;
     // Require normalized paths; Git and realPath disagree on .. after symlink traversal.
@@ -83,15 +92,18 @@ export const makeIsManagedWorktreePath = Effect.gen(function* () {
       realLocation,
     );
     const candidate = yield* realLocation(worktreePath);
-    return roots.some((root) => {
+    const isBelow = (root: string, depth: number) => {
       if (isFilesystemRoot(root, path)) return false;
       const relative = path.relative(root, candidate);
       const segments = relative.split(path.sep);
       return (
         !path.isAbsolute(relative) &&
-        segments.length === 2 &&
+        segments.length === depth &&
         segments.every((segment) => segment !== "" && segment !== "..")
       );
-    });
+    };
+    if (roots.some((root) => isBelow(root, 2))) return true;
+    const container = yield* realLocation(workspaceRoot);
+    return isBelow(container, 1) && (yield* isWorktreeContainer(container));
   });
 });
