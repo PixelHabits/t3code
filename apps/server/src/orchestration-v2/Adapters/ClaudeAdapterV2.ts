@@ -243,7 +243,6 @@ import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import {
   makeProviderFailure,
   makeProviderRetryTurnItem,
-  PROVIDER_RETRY_BUDGET_MS,
   providerProcessExitGuidance,
 } from "@t3tools/provider-core/server/failure";
 import { turnScopedSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
@@ -403,6 +402,8 @@ const WORKFLOW_MEMBER_TRANSCRIPT_FLUSH_MS = 500;
 const BACKGROUND_MOVE_TIMEOUT_MS = 5_000;
 // How long a Stop waits for the CLI to exit before the user is offered Force stop.
 const CLAUDE_STOP_CONFIRM_TIMEOUT_MS = 10_000;
+// How long a started prompt or a sent request may go without a frame before the turn fails.
+export const CLAUDE_UNANSWERED_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 // Matches the stderr tail the SDK keeps for a CLI it spawns itself.
 const CLAUDE_STDERR_TAIL_LENGTH = 2_048;
 // The process group is killed on exit, so its stderr closes promptly.
@@ -7157,26 +7158,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           }).pipe(Effect.withSpan("ClaudeAdapterV2.completeProviderRetry"));
         });
 
-        // A hung request can take many minutes per attempt, so the budget spans the
-        // whole retry window rather than counting attempts.
-        const failExpiredProviderRetry = Effect.fn("ClaudeAdapterV2.failExpiredProviderRetry")(
-          function* (context: ActiveClaudeTurnContext, startedAt: DateTime.Utc) {
-            const isCurrentRetry = Effect.gen(function* () {
-              const retry = (yield* Ref.get(providerRetries)).get(context.providerTurnId);
-              return retry?.startedAt === startedAt && (yield* Ref.get(activeTurn)) === context
-                ? retry
-                : undefined;
-            });
-            const retry = yield* isCurrentRetry;
-            if (retry === undefined) return;
-            yield* failStalledTurn(
-              context,
-              { ...retry.failure, retryable: false },
-              Effect.map(isCurrentRetry, (current) => current !== undefined),
-            );
-          },
-        );
-
         // Partial messages are on, so a started prompt or a sent request streams within seconds.
         // A gateway can hold the request open without ever letting the CLI time out and retry.
         const failUnansweredRequest = Effect.fn("ClaudeAdapterV2.failUnansweredRequest")(function* (
@@ -7193,7 +7174,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             makeProviderFailure({
               class: "transport_error",
               code: "claude_request_unanswered",
-              message: `Claude sent nothing for ${PROVIDER_RETRY_BUDGET_MS / 60_000} minutes. The API or a gateway in front of it is not responding.`,
+              message: `Claude sent nothing for ${CLAUDE_UNANSWERED_REQUEST_TIMEOUT_MS / 60_000} minutes. The API or a gateway in front of it is not responding.`,
               retryable: false,
             }),
             // Once the stop is sent, a frame clearing the silence must not skip forced settlement.
@@ -10228,7 +10209,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           readonly threadDisposition?: "reusable" | "broken";
           readonly result?: SDKResultMessage;
         }) {
-          // A turn stopped by the retry budget settles as failed with the retry's error.
+          // A turn failStalledTurn stopped settles as failed with the stall's error.
           const retryBudgetFailure = requested.context.retryBudgetFailure;
           const input =
             requested.status === "interrupted" && retryBudgetFailure !== undefined
@@ -11676,7 +11657,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               context.unansweredRequestSince = since;
               const previousWatch = context.unansweredRequestWatch;
               // Only the wait is interruptible: a fired failure runs on its own fiber.
-              context.unansweredRequestWatch = yield* Effect.sleep(PROVIDER_RETRY_BUDGET_MS).pipe(
+              context.unansweredRequestWatch = yield* Effect.sleep(
+                CLAUDE_UNANSWERED_REQUEST_TIMEOUT_MS,
+              ).pipe(
                 Effect.andThen(
                   failUnansweredRequest(context, since).pipe(Effect.forkIn(sessionScope)),
                 ),
@@ -12192,12 +12175,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 updatedAt,
               }),
             });
-            if (previous === undefined) {
-              yield* failExpiredProviderRetry(context, state.startedAt).pipe(
-                Effect.delay(PROVIDER_RETRY_BUDGET_MS),
-                Effect.forkIn(sessionScope),
-              );
-            }
             return;
           }
 
